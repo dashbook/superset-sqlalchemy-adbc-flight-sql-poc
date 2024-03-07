@@ -43,11 +43,8 @@ RUN apt-get update -qq && \
     apt-get install -yqq --no-install-recommends\
         build-essential \
         ca-certificates \
-        cmake \
         curl \
         default-libmysqlclient-dev \
-        gcc \
-        git \
         iputils-ping \
         libpq-dev \
         libboost-all-dev \
@@ -59,7 +56,6 @@ RUN apt-get update -qq && \
         netcat-traditional \
         ninja-build \
         sqlite3 \
-        vim \
         wget && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
