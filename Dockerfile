@@ -1,38 +1,68 @@
-FROM python:3.11.3
+######################################################################
+# Node stage to deal with static asset construction
+######################################################################
+ARG PY_VER=3.11-slim-bookworm
+
+# if BUILDPLATFORM is null, set it to 'amd64' (or leave as is otherwise).
+ARG BUILDPLATFORM=${BUILDPLATFORM:-amd64}
+FROM --platform=${BUILDPLATFORM} node:16-bookworm-slim AS superset-node
+
+ARG NPM_BUILD_CMD="build"
+
+RUN apt-get update -qq \
+    && apt-get install -yqq --no-install-recommends \
+        build-essential \
+        python3
+
+ENV BUILD_CMD=${NPM_BUILD_CMD} \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+# NPM ci first, as to NOT invalidate previous steps except for when package.json changes
+WORKDIR /app/superset-frontend
+
+RUN --mount=type=bind,target=/frontend-mem-nag.sh,src=./apache-superset/docker/frontend-mem-nag.sh \
+    /frontend-mem-nag.sh
+
+RUN --mount=type=bind,target=./package.json,src=./apache-superset/superset-frontend/package.json \
+    --mount=type=bind,target=./package-lock.json,src=./apache-superset/superset-frontend/package-lock.json \
+    npm ci
+
+COPY ./apache-superset/superset-frontend ./
+# This seems to be the most expensive step
+RUN npm run ${BUILD_CMD}
+
+######################################################################
+# Final lean image...
+######################################################################
+FROM python:${PY_VER}
 
 # Switching to root to install the required packages
 USER root
 
 # Update OS and install packages
-RUN apt-get update --yes && \
-    apt-get dist-upgrade --yes && \
-    apt-get install --yes \
+RUN apt-get update -qq && \
+    apt-get install -yqq --no-install-recommends\
         build-essential \
         ca-certificates \
-        chromium \
         cmake \
         curl \
         default-libmysqlclient-dev \
         gcc \
         git \
         iputils-ping \
+        libpq-dev \
         libboost-all-dev \
         libffi-dev \
         libldap2-dev \
         libsasl2-dev \
         libsqlite3-dev \
         libssl-dev \
-        netcat \
+        netcat-traditional \
         ninja-build \
         sqlite3 \
         vim \
         wget && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
-
-# Install NodeJS (needed for Apache Superset)
-RUN curl -fsSL https://deb.nodesource.com/setup_16.x | bash - && \
-    apt-get install -y nodejs
 
 # Create an application user
 RUN useradd app_user --create-home
@@ -74,10 +104,7 @@ RUN pip install poetry && \
 
 ENV FLASK_APP="superset.app:create_app()"
 
-# Build javascript assets
-WORKDIR ${APP_DIR}/adbc/apache-superset/superset-frontend
-RUN npm ci && \
-    npm run build
+COPY --chown=app_user:app_user --from=superset-node /app/superset/static/assets apache-superset/superset/static/assets
 
 # Initialize superset
 WORKDIR ${APP_DIR}/adbc
